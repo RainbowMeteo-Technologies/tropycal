@@ -1827,7 +1827,7 @@ def dynamic_map_extent(min_lon, max_lon, min_lat, max_lat, ratio=1.45, recon=Fal
     return bound_w, bound_e, bound_s, bound_n
 
 
-def read_url(url, split=True, subsplit=True):
+def read_url(url, split=True, subsplit=True, load_timeout=None):
     r"""
     Read a URL's content and return the output.
 
@@ -1846,7 +1846,7 @@ def read_url(url, split=True, subsplit=True):
         Returns content of requested URL.
     """
 
-    f = urllib.request.urlopen(url)
+    f = urllib.request.urlopen(url, timeout=load_timeout)
     content = f.read()
     content = content.decode("utf-8")
     if split:

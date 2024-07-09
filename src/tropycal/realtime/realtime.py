@@ -125,13 +125,14 @@ class Realtime():
     def __getitem__(self, key):
         return self.__dict__[key]
 
-    def __init__(self, jtwc=False, jtwc_source='ucar', ssl_certificate=None):
+    def __init__(self, jtwc=False, jtwc_source='ucar', load_timeout=None, ssl_certificate=None):
 
         # Define empty dict to store track data in
         self.data = {}
         self.jtwc = jtwc
         self.jtwc_source = jtwc_source
         self.ssl_certificate = ssl_certificate
+        self.load_timeout = load_timeout
 
         # Time data reading
         start_time = dt.now()
@@ -261,12 +262,12 @@ class Realtime():
         use_ftp = False
         try:
             urlpath = urllib.request.urlopen(
-                'https://ftp.nhc.noaa.gov/atcf/btk/')
+                'https://ftp.nhc.noaa.gov/atcf/btk/', timeout=self.load_timeout)
             string = urlpath.read().decode('utf-8')
         except:
             use_ftp = True
             urlpath = urllib.request.urlopen(
-                'ftp://ftp.nhc.noaa.gov/atcf/btk/')
+                'ftp://ftp.nhc.noaa.gov/atcf/btk/', timeout=self.load_timeout)
             string = urlpath.read().decode('utf-8')
 
         # Get relevant filenames from directory
@@ -324,7 +325,7 @@ class Realtime():
                 url = f"ftp://ftp.nhc.noaa.gov/atcf/btk/{file}"
             else:
                 url = f"https://ftp.nhc.noaa.gov/atcf/btk/{file}"
-            f = urllib.request.urlopen(url)
+            f = urllib.request.urlopen(url, timeout=self.load_timeout)
             content = f.read()
             content_full = content.decode("utf-8")
             content = content_full.split("\n")
@@ -454,9 +455,9 @@ class Realtime():
             ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
             ssl_context.load_verify_locations(cafile=ssl_certificate)
             urlpath = urllib.request.urlopen(
-                url, context=ssl_context)
+                url, context=ssl_context, timeout=self.load_timeout)
         else:
-            urlpath = urllib.request.urlopen(url)
+            urlpath = urllib.request.urlopen(url, timeout=self.load_timeout)
         string = urlpath.read().decode('utf-8')
 
         # Get relevant filenames from directory
@@ -497,11 +498,11 @@ class Realtime():
                     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                     ssl_context.load_verify_locations(cafile=ssl_certificate)
                     urlpath_nextyear = urllib.request.urlopen(url.replace(str(current_year), str(
-                        current_year+1)), context=ssl_context)
+                        current_year+1)), context=ssl_context, timeout=self.load_timeout)
                     string_nextyear = urlpath_nextyear.read().decode('utf-8')
                 else:
                     urlpath_nextyear = urllib.request.urlopen(
-                        url.replace(str(current_year), str(current_year+1)))
+                        url.replace(str(current_year), str(current_year+1)), timeout=self.load_timeout)
                     string_nextyear = urlpath_nextyear.read().decode('utf-8')
 
                 pattern = re.compile(search_pattern)
@@ -576,15 +577,15 @@ class Realtime():
                 ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                 ssl_context.load_verify_locations(cafile=ssl_certificate)
                 f = urllib.request.urlopen(
-                    url, context=ssl_context)
+                    url, context=ssl_context, timeout=self.load_timeout)
                 content = f.read()
                 content = content.decode("utf-8")
                 content = content.split("\n")
                 content = [(i.replace(" ", "")).split(",") for i in content]
                 f.close()
             else:
-                f = urllib.request.urlopen(url)
-                content = read_url(url)
+                f = urllib.request.urlopen(url, timeout=self.load_timeout)
+                content = read_url(url, self.load_timeout)
 
             # iterate through file lines
             for line in content:
@@ -704,7 +705,7 @@ class Realtime():
             # Read in shapefile zip from NHC
             url = 'https://www.nhc.noaa.gov/xgtwo/gtwo_shapefiles.zip'
             request = urllib.request.Request(url)
-            response = urllib.request.urlopen(request)
+            response = urllib.request.urlopen(request, timeout=self.load_timeout)
             file_like_object = BytesIO(response.read())
             tar = zipfile.ZipFile(file_like_object)
 
