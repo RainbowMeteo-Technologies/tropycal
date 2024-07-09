@@ -259,17 +259,13 @@ class Realtime():
         current_year = (dt.now()).year
 
         # Get list of files in online directory
-        use_ftp = False
-        try:
-            urlpath = urllib.request.urlopen(
-                'https://ftp.nhc.noaa.gov/atcf/btk/', timeout=self.load_timeout)
-            string = urlpath.read().decode('utf-8')
-        except:
-            use_ftp = True
-            urlpath = urllib.request.urlopen(
-                'ftp://ftp.nhc.noaa.gov/atcf/btk/', timeout=self.load_timeout)
-            string = urlpath.read().decode('utf-8')
-
+        for base_url in ['https://ftp.nhc.noaa.gov/atcf/btk/', 'ftp://ftp.nhc.noaa.gov/atcf/btk/']:
+            try:
+                string = read_url(url, split=False, subsplit=False, load_timeout=self.load_timeout)
+                break
+            except Exception:
+                pass
+   
         # Get relevant filenames from directory
         files = []
         search_pattern = f'b[aec][lp][012349][0123456789]{current_year}.dat'
@@ -321,19 +317,18 @@ class Realtime():
             self.data[stormid]['ace'] = 0.0
 
             # Read in file
-            if use_ftp:
-                url = f"ftp://ftp.nhc.noaa.gov/atcf/btk/{file}"
-            else:
-                url = f"https://ftp.nhc.noaa.gov/atcf/btk/{file}"
-            f = urllib.request.urlopen(url, timeout=self.load_timeout)
-            content = f.read()
-            content_full = content.decode("utf-8")
-            content = content_full.split("\n")
-            content = [(i.replace(" ", "")).split(",") for i in content]
-            f.close()
+            url = f"{base_url}{file}"
 
+            # f = urllib.request.urlopen(url, timeout=self.load_timeout)
+            # content = f.read()
+            # content_full = content.decode("utf-8")
+            # content = content_full.split("\n")
+            # content = [(i.replace(" ", "")).split(",") for i in content]
+            # f.close()
+
+            content = read_url(url, load_timeout=self.load_timeout)
             # Check if transition is in keywords for invests
-            if invest_bool and 'TRANSITION' in content_full:
+            if invest_bool and 'TRANSITION' in content:
                 del self.data[stormid]
                 continue
 
@@ -451,14 +446,18 @@ class Realtime():
             url = f'https://www.ssd.noaa.gov/PS/TROP/DATA/ATCF/JTWC/'
         if source == 'ucar':
             url = f'http://hurricanes.ral.ucar.edu/repository/data/bdecks_open/{current_year}/'
-        if ssl_certificate is not None and source in ['jtwc', 'noaa']:
-            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-            ssl_context.load_verify_locations(cafile=ssl_certificate)
-            urlpath = urllib.request.urlopen(
-                url, context=ssl_context, timeout=self.load_timeout)
-        else:
-            urlpath = urllib.request.urlopen(url, timeout=self.load_timeout)
-        string = urlpath.read().decode('utf-8')
+
+        # if ssl_certificate is not None and source in ['jtwc', 'noaa']:
+        #     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        #     ssl_context.load_verify_locations(cafile=ssl_certificate)
+        #     urlpath = urllib.request.urlopen(
+        #         url, context=ssl_context, timeout=self.load_timeout)
+        # else:
+        #     urlpath = urllib.request.urlopen(url, timeout=self.load_timeout)
+        # string = urlpath.read().decode('utf-8')
+        string = read_url(url,
+                          split=False, subsplit=False,
+                          load_timeout=self.load_timeout)
 
         # Get relevant filenames from directory
         files_temp = []
@@ -584,8 +583,7 @@ class Realtime():
                 content = [(i.replace(" ", "")).split(",") for i in content]
                 f.close()
             else:
-                f = urllib.request.urlopen(url, timeout=self.load_timeout)
-                content = read_url(url, self.load_timeout)
+                content = read_url(url, load_timeout=self.load_timeout)
 
             # iterate through file lines
             for line in content:

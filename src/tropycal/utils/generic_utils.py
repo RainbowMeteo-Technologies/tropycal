@@ -1846,15 +1846,24 @@ def read_url(url, split=True, subsplit=True, load_timeout=None):
         Returns content of requested URL.
     """
 
-    f = urllib.request.urlopen(url, timeout=load_timeout)
-    content = f.read()
-    content = content.decode("utf-8")
+    # f = urllib.request.urlopen(url, timeout=load_timeout)
+    # content = f.read()
+    # content = content.decode("utf-8")
+    # if split:
+    #     content = content.split("\n")
+    # if subsplit:
+    #     content = [(i.replace(" ", "")).split(",") for i in content]
+    # f.close()
+
+    # return content
+    response = requests.get(url, timeout=load_timeout)
+    if response.status_code != 200:
+        raise ValueError(f"Error: {response.status_code}")
+    content = response.content.decode("utf-8")
     if split:
         content = content.split("\n")
     if subsplit:
         content = [(i.replace(" ", "")).split(",") for i in content]
-    f.close()
-
     return content
 
 def round_time_down(time, minute_increment):
