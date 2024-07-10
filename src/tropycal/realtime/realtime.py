@@ -134,20 +134,21 @@ class Realtime():
         self.ssl_certificate = ssl_certificate
         self.load_timeout = load_timeout
 
+    async def init(self):
         # Time data reading
         start_time = dt.now()
         print("--> Starting to read in current storm data")
 
         # Read in best track data from NHC
-        self.__read_btk()
+        await self.__read_btk()
         self.__filter_best_track()
         
         # Read in best track data from JTWC
-        if jtwc:
-            if jtwc_source not in ['ucar', 'noaa', 'jtwc']:
+        if self.jtwc:
+            if self.jtwc_source not in ['ucar', 'noaa', 'jtwc']:
                 msg = "\"jtwc_source\" must be either \"ucar\", \"noaa\", or \"jtwc\"."
                 raise ValueError(msg)
-            self.__read_btk_jtwc(jtwc_source, ssl_certificate)
+            await self.__read_btk_jtwc(self.jtwc_source, self.ssl_certificate)
             self.__filter_best_track()
 
         # Determine time elapsed
@@ -196,8 +197,8 @@ class Realtime():
 
         # Set attributes
         self.attrs = {
-            'jtwc': jtwc,
-            'jtwc_source': jtwc_source,
+            'jtwc': self.jtwc,
+            'jtwc_source': self.jtwc_source,
             'time': self.time
         }
 
@@ -250,7 +251,7 @@ class Realtime():
             if match:
                 del self.data[key]
     
-    def __read_btk(self):
+    async def __read_btk(self):
         r"""
         Reads in best track data into the Dataset object.
         """
@@ -259,13 +260,16 @@ class Realtime():
         current_year = (dt.now()).year
 
         # Get list of files in online directory
-        for base_url in ['https://ftp.nhc.noaa.gov/atcf/btk/', 'ftp://ftp.nhc.noaa.gov/atcf/btk/']:
+        string = None
+        for base_url in (f'https://ftp.nhc.noaa.gov/atcf/btk/', f'ftp://ftp.nhc.noaa.gov/atcf/btk/'):
             try:
-                string = read_url(url, split=False, subsplit=False, load_timeout=self.load_timeout)
+                string = await read_url(base_url, split=False, subsplit=False, load_timeout=self.load_timeout)
                 break
-            except Exception:
-                pass
-   
+            except Exception as e:
+                continue
+        if string is None:
+            raise ValueError("Could not read in NHC ATCF data.")
+
         # Get relevant filenames from directory
         files = []
         search_pattern = f'b[aec][lp][012349][0123456789]{current_year}.dat'
@@ -318,17 +322,10 @@ class Realtime():
 
             # Read in file
             url = f"{base_url}{file}"
+            content = await read_url(url, load_timeout=self.load_timeout)
 
-            # f = urllib.request.urlopen(url, timeout=self.load_timeout)
-            # content = f.read()
-            # content_full = content.decode("utf-8")
-            # content = content_full.split("\n")
-            # content = [(i.replace(" ", "")).split(",") for i in content]
-            # f.close()
-
-            content = read_url(url, load_timeout=self.load_timeout)
             # Check if transition is in keywords for invests
-            if invest_bool and 'TRANSITION' in content:
+            if invest_bool and 'TRANSITION' in content_full:
                 del self.data[stormid]
                 continue
 
@@ -432,7 +429,7 @@ class Realtime():
                 if hour_diff > 18:
                     self.data[stormid]['invest'] = True
 
-    def __read_btk_jtwc(self, source, ssl_certificate):
+    async def __read_btk_jtwc(self, source, ssl_certificate):
         r"""
         Reads in b-deck data from the Tropical Cyclone Guidance Project (TCGP) into the Dataset object.
         """
@@ -447,17 +444,13 @@ class Realtime():
         if source == 'ucar':
             url = f'http://hurricanes.ral.ucar.edu/repository/data/bdecks_open/{current_year}/'
 
-        # if ssl_certificate is not None and source in ['jtwc', 'noaa']:
-        #     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        #     ssl_context.load_verify_locations(cafile=ssl_certificate)
-        #     urlpath = urllib.request.urlopen(
-        #         url, context=ssl_context, timeout=self.load_timeout)
-        # else:
-        #     urlpath = urllib.request.urlopen(url, timeout=self.load_timeout)
-        # string = urlpath.read().decode('utf-8')
-        string = read_url(url,
-                          split=False, subsplit=False,
-                          load_timeout=self.load_timeout)
+        if ssl_certificate is not None and source in ['jtwc', 'noaa']:
+            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ssl_context.load_verify_locations(cafile=ssl_certificate)
+            urlpath = urllib.request.urlopen(url, context=ssl_context, timeout=self.load_timeout)
+            string = urlpath.read().decode('utf-8')
+        else:
+            string = await read_url(url, split=False, subsplit=False, load_timeout=self.load_timeout)
 
         # Get relevant filenames from directory
         files_temp = []
@@ -493,16 +486,14 @@ class Realtime():
         
         if source in ['jtwc', 'ucar', 'noaa']:
             try:
+                ny_url = url.replace(str(current_year), str(current_year+1))
                 if ssl_certificate is not None and source in ['jtwc', 'noaa']:
                     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                     ssl_context.load_verify_locations(cafile=ssl_certificate)
-                    urlpath_nextyear = urllib.request.urlopen(url.replace(str(current_year), str(
-                        current_year+1)), context=ssl_context, timeout=self.load_timeout)
+                    urlpath_nextyear = urllib.request.urlopen(ny_url, context=ssl_context, timeout=self.load_timeout)
                     string_nextyear = urlpath_nextyear.read().decode('utf-8')
                 else:
-                    urlpath_nextyear = urllib.request.urlopen(
-                        url.replace(str(current_year), str(current_year+1)), timeout=self.load_timeout)
-                    string_nextyear = urlpath_nextyear.read().decode('utf-8')
+                    string_nextyear = await read_url(ny_url, split=False, subsplit=False, load_timeout=self.load_timeout)
 
                 pattern = re.compile(search_pattern)
                 filelist = pattern.findall(string_nextyear)
@@ -575,15 +566,14 @@ class Realtime():
             if ssl_certificate is not None and source in ['jtwc', 'noaa']:
                 ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                 ssl_context.load_verify_locations(cafile=ssl_certificate)
-                f = urllib.request.urlopen(
-                    url, context=ssl_context, timeout=self.load_timeout)
+                f = urllib.request.urlopen(url, context=ssl_context, timeout=self.load_timeout)
                 content = f.read()
                 content = content.decode("utf-8")
                 content = content.split("\n")
                 content = [(i.replace(" ", "")).split(",") for i in content]
                 f.close()
             else:
-                content = read_url(url, load_timeout=self.load_timeout)
+                content = await read_url(url, load_timeout=self.load_timeout)
 
             # iterate through file lines
             for line in content:
@@ -982,8 +972,7 @@ class Realtime():
             for key in self.storms:
                 if not self[key].invest:
                     try:
-                        self.forecasts.append(self.get_storm(
-                            key).get_forecast_realtime(ssl_certificate))
+                        self.forecasts.append(self.get_storm(key).get_forecast_realtime(ssl_certificate))
                     except:
                         self.forecasts.append({})
                 else:
