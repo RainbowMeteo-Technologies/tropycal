@@ -1833,15 +1833,15 @@ def dynamic_map_extent(min_lon, max_lon, min_lat, max_lat, ratio=1.45, recon=Fal
     return bound_w, bound_e, bound_s, bound_n
 
 
-async def _fetch(url, load_timeout):
-    async with aiohttp.ClientSession() as session:
+async def _fetch(url, load_timeout, verify_ssl=True, ssl_context=None):
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=verify_ssl, ssl=ssl_context)) as session:
         timeout = aiohttp.ClientTimeout(total=load_timeout)
         async with session.get(url, timeout=timeout) as response:
             result = await response.text()
     return result
 
 
-async def read_url(url, split=True, subsplit=True, load_timeout=None):
+async def read_url(url, split=True, subsplit=True, load_timeout=None, verify_ssl=True, ssl_context=None):
     r"""
     Read a URL's content and return the output.
 
@@ -1853,6 +1853,8 @@ async def read_url(url, split=True, subsplit=True, load_timeout=None):
         Whether to split content by line. Default is True.
     subsplit: bool, optional
         Whether to split each line by comma. Default is True.
+    ssl_context : ssl.SSLContext, optional
+        SSL context for reading URL. Default is None.
     load_timeout : float, optional
         Timeout for loading URL. Default is None.
 
@@ -1862,7 +1864,7 @@ async def read_url(url, split=True, subsplit=True, load_timeout=None):
         Returns content of requested URL.
     """
     try:
-        content = await _fetch(url, load_timeout)
+        content = await _fetch(url, load_timeout, verify_ssl=verify_ssl, ssl_context=ssl_context)
     except asyncio.TimeoutError as ex:
         raise ValueError(f"Error: Timeout reached for {url} {ex}")
     if split:
