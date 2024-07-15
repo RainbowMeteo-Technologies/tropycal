@@ -246,7 +246,7 @@ class RealtimeStorm(Storm):
         with open(full_path, 'wb') as f:
             f.write(response.content)
 
-    def get_discussion_realtime(self):
+    def get_discussion_realtime(self, load_timeout=None):
         r"""
         Retrieve the latest available forecast discussion. For JTWC storms, the Prognostic Reasoning product is retrieved.
 
@@ -270,7 +270,7 @@ class RealtimeStorm(Storm):
 
             # Read in discussion file
             url = f"https://www.metoc.navy.mil/jtwc/products/{self.id[0:2].lower()}{self.id[2:4]}{self.id[6:8]}prog.txt"
-            f = urllib.request.urlopen(url)
+            f = urllib.request.urlopen(url, timeout=load_timeout)
             content = f.read()
             content = content.decode("utf-8")
             f.close()
@@ -281,7 +281,7 @@ class RealtimeStorm(Storm):
             msg = "No realtime forecast discussion is available for this storm."
             raise RuntimeError(msg)
 
-    def get_forecast_realtime(self, ssl_certificate=None):
+    async def get_forecast_realtime(self, load_timeout=None, ssl_certificate=None):
         r"""
         Retrieve a dictionary containing the latest official forecast. Available for both NHC and JTWC sources.
 
@@ -308,17 +308,15 @@ class RealtimeStorm(Storm):
         # NHC forecast data
         if self.source == 'hurdat':
 
+            content = None
             # Get forecast for this storm
-            try:
-                content = read_url(
-                    f"https://ftp.nhc.noaa.gov/atcf/fst/{self.id.lower()}.fst")
-            except:
+            for base_url in ["https://ftp.nhc.noaa.gov/atcf/fst/", "ftp://ftp.nhc.noaa.gov/atcf/fst/"]:
                 try:
-                    content = read_url(
-                        f"ftp://ftp.nhc.noaa.gov/atcf/fst/{self.id.lower()}.fst")
-                except:
-                    raise RuntimeError(
-                        "NHC forecast data is unavailable for this storm.")
+                    content = await read_url(f"{base_url}{self.id.lower()}.fst", load_timeout=load_timeout)
+                except Exception as ex:
+                    continue
+            if content is None:
+                raise RuntimeError("NHC forecast data is unavailable for this storm.")
 
             # Iterate through every line in content:
             forecasts = {}
@@ -452,14 +450,13 @@ class RealtimeStorm(Storm):
                 import ssl
                 ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                 ssl_context.load_verify_locations(cafile=ssl_certificate)
-                f = urllib.request.urlopen(
-                    url, context=ssl_context)
+                f = urllib.request.urlopen(url, context=ssl_context, timeout=load_timeout)
+                content = f.read()
+                content = content.decode("utf-8")
+                content = content.split("\n")
+                f.close()
             else:
-                f = urllib.request.urlopen(url)
-            content = f.read()
-            content = content.decode("utf-8")
-            content = content.split("\n")
-            f.close()
+                content = await read_url(url, load_timeout=load_timeout)
 
             # Find starting index
             start_idx = 0
@@ -847,7 +844,7 @@ class RealtimeStorm(Storm):
         # Return axis
         return plot_ax
 
-    def get_realtime_info(self, source='all'):
+    async def get_realtime_info(self, source='all', load_timeout=None):
         r"""
         Returns a dict containing the latest available information about the storm. This function uses NHC Public Advisories, so it will differ from available Best Track data.
 
@@ -896,13 +893,15 @@ class RealtimeStorm(Storm):
                 # Get latest available public advisory
                 advisory_found = False
                 try:
-                    content = read_url(
-                        f"https://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False)
+                    content = await read_url(
+                        f"https://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False,
+                        load_timeout=load_timeout)
                     advisory_found = True
                 except:
                     try:
-                        content = read_url(
-                            f"ftp://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False)
+                        content = await read_url(
+                            f"ftp://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False,
+                            load_timeout=load_timeout)
                         advisory_found = True
                     except:
                         pass
@@ -931,11 +930,13 @@ class RealtimeStorm(Storm):
 
             # Get latest available public advisory
             try:
-                content = read_url(
-                    f"https://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False)
+                content = await read_url(
+                    f"https://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml",
+                    subsplit=False, load_timeout=load_timeout)
             except:
-                content = read_url(
-                    f"ftp://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml", subsplit=False)
+                content = await read_url(
+                    f"ftp://ftp.nhc.noaa.gov/atcf/adv/{self.id.lower()}_info.xml",
+                    subsplit=False, load_timeout=load_timeout)
 
             # Get public advisory number
             results = [i for i in content if 'advisoryNumber' in i][0]
@@ -1144,7 +1145,7 @@ class RealtimeStorm(Storm):
         # Return dict
         return current_advisory
 
-    def __get_public_advisory(self):
+    async def __get_public_advisory(self, load_timeout=None):
 
         # Get list of all public advisories for this storm
         url_disco = 'https://ftp.nhc.noaa.gov/atcf/pub/'
@@ -1187,7 +1188,7 @@ class RealtimeStorm(Storm):
             files = [i for i in files if f".public_{max_letter}" in i]
 
         # Read file containing advisory
-        content = read_url(url_disco + files[0], subsplit=False)
+        content = await read_url(url_disco + files[0], subsplit=False, load_timeout=load_timeout)
 
         # Figure out time issued
         hr = content[6].split(" ")[0]
@@ -1217,7 +1218,7 @@ class RealtimeStorm(Storm):
         offset = time_zones.get(zone, 0)
         disco_time = disco_time + timedelta(hours=offset*-1)
 
-    def get_ships_realtime(self):
+    async def get_ships_realtime(self, load_timeout=None):
         r"""
         Retrieves a Ships object containing the latest SHIPS data.
 
@@ -1254,7 +1255,8 @@ class RealtimeStorm(Storm):
 
         # Fetch latest file
         filename = f'{sorted_files[-1].strftime("%y%m%d%H")}{reformatted_id}_ships.txt'
-        content = read_url(f'https://ftp.nhc.noaa.gov/atcf/stext/{filename}', split=False, subsplit=False)
+        content = await read_url(f'https://ftp.nhc.noaa.gov/atcf/stext/{filename}',
+                           split=False, subsplit=False, load_timeout=load_timeout)
 
         # Make sure file has content
         if len(content) < 10:

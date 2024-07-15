@@ -5,20 +5,26 @@ add it in that file.
 
 Public utility functions should be added to documentation in the '/docs/_templates/overrides/tropycal.utils.rst' file."""
 
-import shapely.geometry as sgeom
+import aiohttp
+import asyncio
+import logging
 import math
 import numpy as np
-from datetime import datetime as dt, timedelta
+import re
 import requests
+import scipy.interpolate as interp
+import shapefile
+import shapely.geometry as sgeom
 import urllib
 import warnings
-import scipy.interpolate as interp
-import re
-import shapefile
 import zipfile
+
+from datetime import datetime as dt, timedelta
 from io import BytesIO
 
-from .. import constants
+
+from     .. import constants
+logger =     logging.getLogger(__name__)
 
 # ===========================================================================================================
 # Public utilities
@@ -1827,7 +1833,15 @@ def dynamic_map_extent(min_lon, max_lon, min_lat, max_lat, ratio=1.45, recon=Fal
     return bound_w, bound_e, bound_s, bound_n
 
 
-def read_url(url, split=True, subsplit=True):
+async def _fetch(url, load_timeout, verify_ssl=True, ssl_context=None):
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=verify_ssl, ssl=ssl_context)) as session:
+        timeout = aiohttp.ClientTimeout(total=load_timeout)
+        async with session.get(url, timeout=timeout) as response:
+            result = await response.text()
+    return result
+
+
+async def read_url(url, split=True, subsplit=True, load_timeout=None, verify_ssl=True, ssl_context=None):
     r"""
     Read a URL's content and return the output.
 
@@ -1839,23 +1853,26 @@ def read_url(url, split=True, subsplit=True):
         Whether to split content by line. Default is True.
     subsplit: bool, optional
         Whether to split each line by comma. Default is True.
+    ssl_context : ssl.SSLContext, optional
+        SSL context for reading URL. Default is None.
+    load_timeout : float, optional
+        Timeout for loading URL. Default is None.
 
     Returns
     -------
     str
         Returns content of requested URL.
     """
-
-    f = urllib.request.urlopen(url)
-    content = f.read()
-    content = content.decode("utf-8")
+    try:
+        content = await _fetch(url, load_timeout, verify_ssl=verify_ssl, ssl_context=ssl_context)
+    except asyncio.TimeoutError as ex:
+        raise ValueError(f"Error: Timeout reached for {url} {ex}")
     if split:
         content = content.split("\n")
     if subsplit:
         content = [(i.replace(" ", "")).split(",") for i in content]
-    f.close()
-
     return content
+
 
 def round_time_down(time, minute_increment):
     r"""

@@ -2572,7 +2572,7 @@ class Storm:
         # Return list
         return output
 
-    def get_operational_forecasts(self):
+    def get_operational_forecasts(self, load_timeout=None):
         r"""
         Retrieves operational model and NHC forecasts throughout the entire life duration of the storm.
 
@@ -2691,11 +2691,11 @@ class Storm:
 
             # Retrieve model data text
             try:
-                content = read_url(url_models_noaa, split=True, subsplit=False)
+                content = read_url(url_models_noaa, split=True, subsplit=False, load_timeout=load_timeout)
             except:
                 try:
                     content = read_url(
-                        url_models_ucar, split=True, subsplit=False)
+                        url_models_ucar, split=True, subsplit=False, load_timeout=load_timeout)
                 except:
                     raise RuntimeError(
                         "No operational model data is available for this storm.")
@@ -3245,7 +3245,7 @@ class Storm:
         # Organize by date and format for printing
         return sorted([dt.strptime(i[:8],'%y%m%d%H') for i in files])
     
-    def get_ships(self, time):
+    def get_ships(self, time, load_timeout=None):
         r"""
         Retrieves a Ships object containing SHIPS data for a requested time.
 
@@ -3281,7 +3281,7 @@ class Storm:
 
         # Fetch SHIPS content
         try:
-            content = read_url(url, split=False, subsplit=False)
+            content = read_url(url, split=False, subsplit=False, load_timeout=load_timeout)
             if len(content) < 10:
                 warnings.warn('Improper SHIPS entry for this time. Returning a value of None.')
                 return None

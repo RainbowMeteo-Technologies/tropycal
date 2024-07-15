@@ -125,34 +125,43 @@ class Realtime():
     def __getitem__(self, key):
         return self.__dict__[key]
 
-    def __init__(self, jtwc=False, jtwc_source='ucar', ssl_certificate=None):
+    def __init__(self, jtwc=False, jtwc_source='ucar', load_timeout=None,
+                 ssl_certificate=None, verify_ssl=True):
 
         # Define empty dict to store track data in
         self.data = {}
+        self.storms = []
         self.jtwc = jtwc
         self.jtwc_source = jtwc_source
         self.ssl_certificate = ssl_certificate
+        self.verify_ssl = verify_ssl
+        self.load_timeout = load_timeout
+        self.time = dt.now()
+        self.forecasts = []
+        self.two = None
+        self.attrs = {}
 
+    async def init(self):
         # Time data reading
         start_time = dt.now()
         print("--> Starting to read in current storm data")
 
         # Read in best track data from NHC
-        self.__read_btk()
+        await self.__read_btk()
         self.__filter_best_track()
-        
         # Read in best track data from JTWC
-        if jtwc:
-            if jtwc_source not in ['ucar', 'noaa', 'jtwc']:
+        if self.jtwc:
+            if self.jtwc_source not in ['ucar', 'noaa', 'jtwc']:
                 msg = "\"jtwc_source\" must be either \"ucar\", \"noaa\", or \"jtwc\"."
                 raise ValueError(msg)
-            self.__read_btk_jtwc(jtwc_source, ssl_certificate)
+            await self.__read_btk_jtwc(self.jtwc_source)
             self.__filter_best_track()
+            print(f"--> Completed reading in JTWC best track data {self.data}")
 
         # Determine time elapsed
         time_elapsed = dt.now() - start_time
         tsec = str(round(time_elapsed.total_seconds(), 2))
-        print(f"--> Completed reading in current storm data ({tsec} seconds)")
+        print(f"--> Completed reading in current storm data ({tsec} seconds) %s" % self.data)
 
         # For each storm remaining, create a Storm object
         if len(self.data) > 0:
@@ -195,8 +204,8 @@ class Realtime():
 
         # Set attributes
         self.attrs = {
-            'jtwc': jtwc,
-            'jtwc_source': jtwc_source,
+            'jtwc': self.jtwc,
+            'jtwc_source': self.jtwc_source,
             'time': self.time
         }
 
@@ -207,11 +216,11 @@ class Realtime():
         
         # Remove storms that haven't been active in 18 hours
         all_keys = [k for k in self.data.keys()]
+        del_keys = {}
         for key in all_keys:
-
             # Filter for storm duration
             if len(self.data[key]['time']) == 0:
-                del self.data[key]
+                del_keys[key] = "No time data"
                 continue
 
             # Get last time
@@ -221,25 +230,20 @@ class Realtime():
             # Get time difference
             hours_diff = (current_time - last_time).total_seconds() / 3600.0
             if hours_diff >= 12.0 or (self.data[key]['invest'] and hours_diff >= 9.0):
-                del self.data[key]
+                del_keys[key] = "Inactive for 12 hours or more"
             if hours_diff <= -48.0:
-                del self.data[key]
+                del_keys[key] = "Future storm"
 
         # Remove invests that have been classified as TCs
-        all_keys = [k for k in self.data.keys()]
         for key in all_keys:
-
             # Only keep invests
-            try:
-                if not self.data[key]['invest']:
-                    continue
-            except:
+            if key in del_keys or not self.data[key].get('invest', False):
                 continue
 
             # Iterate through all storms
             match = False
             for key_storm in self.data.keys():
-                if self.data[key_storm]['invest']:
+                if key in del_keys or self.data[key_storm]['invest']:
                     continue
 
                 # Check for overlap in lons
@@ -247,9 +251,14 @@ class Realtime():
                     match = True
 
             if match:
-                del self.data[key]
-    
-    def __read_btk(self):
+                del_keys[key] = "Invest reclassified as TC"
+
+        for key in del_keys:
+            del self.data[key]
+
+        print(f"--> Filtered out storms: {del_keys.keys()}")
+
+    async def __read_btk(self):
         r"""
         Reads in best track data into the Dataset object.
         """
@@ -258,16 +267,15 @@ class Realtime():
         current_year = (dt.now()).year
 
         # Get list of files in online directory
-        use_ftp = False
-        try:
-            urlpath = urllib.request.urlopen(
-                'https://ftp.nhc.noaa.gov/atcf/btk/')
-            string = urlpath.read().decode('utf-8')
-        except:
-            use_ftp = True
-            urlpath = urllib.request.urlopen(
-                'ftp://ftp.nhc.noaa.gov/atcf/btk/')
-            string = urlpath.read().decode('utf-8')
+        string = None
+        for base_url in (f'https://ftp.nhc.noaa.gov/atcf/btk/', f'ftp://ftp.nhc.noaa.gov/atcf/btk/'):
+            try:
+                string = await read_url(base_url, split=False, subsplit=False, load_timeout=self.load_timeout)
+                break
+            except Exception as e:
+                continue
+        if string is None:
+            raise ValueError("Could not read in NHC ATCF data.")
 
         # Get relevant filenames from directory
         files = []
@@ -311,6 +319,7 @@ class Realtime():
                 'source_method': "NHC's Automated Tropical Cyclone Forecasting System (ATCF)",
                 'source_url': "https://ftp.nhc.noaa.gov/atcf/btk/",
             }
+            print(f"--> add {stormid} {invest_bool}")
             self.data[stormid]['source'] = 'hurdat'
             self.data[stormid]['jtwc_source'] = 'N/A'
 
@@ -320,19 +329,12 @@ class Realtime():
             self.data[stormid]['ace'] = 0.0
 
             # Read in file
-            if use_ftp:
-                url = f"ftp://ftp.nhc.noaa.gov/atcf/btk/{file}"
-            else:
-                url = f"https://ftp.nhc.noaa.gov/atcf/btk/{file}"
-            f = urllib.request.urlopen(url)
-            content = f.read()
-            content_full = content.decode("utf-8")
-            content = content_full.split("\n")
-            content = [(i.replace(" ", "")).split(",") for i in content]
-            f.close()
+            url = f"{base_url}{file}"
+            content = await read_url(url, load_timeout=self.load_timeout)
 
             # Check if transition is in keywords for invests
-            if invest_bool and 'TRANSITION' in content_full:
+            if invest_bool and 'TRANSITION' in content:
+                print(f"--> delete {stormid} {invest_bool} {content}")
                 del self.data[stormid]
                 continue
 
@@ -435,8 +437,9 @@ class Realtime():
                              last_tropical_time).total_seconds() / 3600
                 if hour_diff > 18:
                     self.data[stormid]['invest'] = True
+        print(f"--> Completed reading in NHC best track data {self.data.keys()}")
 
-    def __read_btk_jtwc(self, source, ssl_certificate):
+    async def __read_btk_jtwc(self, source):
         r"""
         Reads in b-deck data from the Tropical Cyclone Guidance Project (TCGP) into the Dataset object.
         """
@@ -450,14 +453,15 @@ class Realtime():
             url = f'https://www.ssd.noaa.gov/PS/TROP/DATA/ATCF/JTWC/'
         if source == 'ucar':
             url = f'http://hurricanes.ral.ucar.edu/repository/data/bdecks_open/{current_year}/'
-        if ssl_certificate is not None and source in ['jtwc', 'noaa']:
+
+        ssl_context = None
+        if self.ssl_certificate is not None and source in ['jtwc', 'noaa']:
             ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-            ssl_context.load_verify_locations(cafile=ssl_certificate)
-            urlpath = urllib.request.urlopen(
-                url, context=ssl_context)
-        else:
-            urlpath = urllib.request.urlopen(url)
-        string = urlpath.read().decode('utf-8')
+            ssl_context.load_verify_locations(cafile=self.ssl_certificate)
+
+        string = await read_url(url, split=False, subsplit=False,
+                                load_timeout=self.load_timeout,
+                                ssl_context=ssl_context, verify_ssl=self.verify_ssl)
 
         # Get relevant filenames from directory
         files_temp = []
@@ -493,16 +497,10 @@ class Realtime():
         
         if source in ['jtwc', 'ucar', 'noaa']:
             try:
-                if ssl_certificate is not None and source in ['jtwc', 'noaa']:
-                    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-                    ssl_context.load_verify_locations(cafile=ssl_certificate)
-                    urlpath_nextyear = urllib.request.urlopen(url.replace(str(current_year), str(
-                        current_year+1)), context=ssl_context)
-                    string_nextyear = urlpath_nextyear.read().decode('utf-8')
-                else:
-                    urlpath_nextyear = urllib.request.urlopen(
-                        url.replace(str(current_year), str(current_year+1)))
-                    string_nextyear = urlpath_nextyear.read().decode('utf-8')
+                ny_url = url.replace(str(current_year), str(current_year+1))
+                string_nextyear = await read_url(ny_url, split=False, subsplit=False,
+                                                 load_timeout=self.load_timeout,
+                                                 ssl_context=ssl_context, verify_ssl=self.verify_ssl)
 
                 pattern = re.compile(search_pattern)
                 filelist = pattern.findall(string_nextyear)
@@ -572,19 +570,8 @@ class Realtime():
             if f"{current_year+1}.dat" in url:
                 url = url.replace(str(current_year), str(current_year+1))
 
-            if ssl_certificate is not None and source in ['jtwc', 'noaa']:
-                ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-                ssl_context.load_verify_locations(cafile=ssl_certificate)
-                f = urllib.request.urlopen(
-                    url, context=ssl_context)
-                content = f.read()
-                content = content.decode("utf-8")
-                content = content.split("\n")
-                content = [(i.replace(" ", "")).split(",") for i in content]
-                f.close()
-            else:
-                f = urllib.request.urlopen(url)
-                content = read_url(url)
+            content = await read_url(url, load_timeout=self.load_timeout,
+                                     ssl_context=ssl_context, verify_ssl=self.verify_ssl)
 
             # iterate through file lines
             for line in content:
@@ -696,6 +683,7 @@ class Realtime():
 
             # Add storm name
             self.data[stormid]['name'] = name
+        print(f"--> Completed reading in JTWC best track data {self.data.keys()}")
 
     def __read_nhc_shapefile(self):
 
@@ -704,7 +692,7 @@ class Realtime():
             # Read in shapefile zip from NHC
             url = 'https://www.nhc.noaa.gov/xgtwo/gtwo_shapefiles.zip'
             request = urllib.request.Request(url)
-            response = urllib.request.urlopen(request)
+            response = urllib.request.urlopen(request, timeout=self.load_timeout)
             file_like_object = BytesIO(response.read())
             tar = zipfile.ZipFile(file_like_object)
 
@@ -827,7 +815,7 @@ class Realtime():
         # Return RealtimeStorm object
         return self[storm]
 
-    def plot_summary(self, domain='all', ax=None, cartopy_proj=None, save_path=None, ssl_certificate=None, **kwargs):
+    async def plot_summary(self, domain='all', ax=None, cartopy_proj=None, save_path=None, ssl_certificate=None, **kwargs):
         r"""
         Plot a summary map of ongoing tropical cyclone and potential development activity.
 
@@ -983,8 +971,7 @@ class Realtime():
             for key in self.storms:
                 if not self[key].invest:
                     try:
-                        self.forecasts.append(self.get_storm(
-                            key).get_forecast_realtime(ssl_certificate))
+                        self.forecasts.append(await self.get_storm(key).get_forecast_realtime(ssl_certificate))
                     except:
                         self.forecasts.append({})
                 else:
