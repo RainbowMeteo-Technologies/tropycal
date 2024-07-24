@@ -715,8 +715,8 @@ def nhc_cone_radii(year, basin, forecast_hour=None):
     cone_climo_hr = [3, 12, 24, 36, 48, 72, 96, 120]
 
     # Basin check
-    if basin not in ['north_atlantic', 'east_pacific']:
-        return {}
+    # if basin not in ['north_atlantic', 'east_pacific']:
+    #     return {}
 
     # Fix for 2020 and later that incorporates 60 hour forecasts
     if year >= 2020:
@@ -748,15 +748,20 @@ def nhc_cone_radii(year, basin, forecast_hour=None):
         year = 2008
         warnings.warn(
             "No cone information is available for the requested year. Defaulting to 2008 cone.")
+    
+    if basin not in ['north_atlantic', 'east_pacific']:
+        year = constants.CONE_SIZE_CPAC.keys()[0]
+
+    consts = {
+        'north_atlantic': constants.CONE_SIZE_ATL,
+        'east_pacific': constants.CONE_SIZE_PAC,
+    }.get(basin, constants.CONE_SIZE_CPAC)
 
     # Retrieve data
     cone_radii = {}
     for hour in list(np.sort(forecast_hour)):
         hour_index = cone_climo_hr.index(hour)
-        if basin == 'north_atlantic':
-            cone_radii[hour] = constants.CONE_SIZE_ATL[year][hour_index]
-        elif basin == 'east_pacific':
-            cone_radii[hour] = constants.CONE_SIZE_PAC[year][hour_index]
+        cone_radii[hour] = consts[year][hour_index]
 
     return cone_radii
 

@@ -25,6 +25,20 @@ NHC_BASINS = frozenset(['north_atlantic','east_pacific','both'])
 #South Hemisphere basins
 SOUTH_HEMISPHERE_BASINS = frozenset(['south_atlantic','south_indian','australia','south_pacific'])
 
+# Radii of NHC and CPHC forecast cone circles for 2024, based on error statistics from 2019-2023:
+
+# Forecast Period (hours) | 2/3 Probability Circle (nautical miles)
+#                         | Atlantic Basin | Eastern North Pacific | Central North Pacific Basin
+#                         | CONE_SIZE_ATL  | CONE_SIZE_PAC         | Central North Pacific Basin
+# ------------------------|----------------|-----------------------|----------------------------
+# 12                      | 26             | 26                    | 34
+# 24                      | 41             | 39                    | 49
+# 36                      | 55             | 53                    | 66
+# 48                      | 70             | 65                    | 81
+# 60                      | 88             | 76                    | 95
+# 72                      | 102            | 92                    | 120
+# 96                      | 151            | 119                   | 137
+# 120                     | 220            | 152                   | 156
 
 #NHC Cone Radii, in nautical miles
 #Source: https://www.nhc.noaa.gov/verification/verify3.shtml
@@ -66,6 +80,10 @@ CONE_SIZE_PAC = {
     2010: [16,36,59,82,102,138,174,220],
     2009: [16,36,59,85,105,148,187,230],
     2008: [16,36,66,92,115,161,210,256],
+}
+
+CONE_SIZE_CPAC = {
+    2024: [34,49,66,81,95,120,137,156],
 }
 
 #Create path for Pacific (Atlantic crossover into Pacific)
