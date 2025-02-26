@@ -1,5 +1,10 @@
-r"""Package for retrieving and analyzing tropical cyclone data."""
+"""
+tropycal - Package for retrieving and analyzing tropical cyclone data
+"""
 
-from ._version import get_version  # noqa: E402
-__version__ = get_version()
-del get_version
+try:
+    from ._version import version as __version__  # noqa: F401
+    from ._version import version  # noqa: F401
+except ImportError:
+    __version__ = "unknown"
+    version = __version__
